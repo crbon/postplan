@@ -38,7 +38,7 @@ function guessType(name) {
 const program = new Command();
 
 program
-  .name("postplan-r2")
+  .name("postplan")
   .description("Upload static HTML drafts to a Convex and R2 Postplan instance.")
   .version(VERSION);
 
@@ -370,12 +370,12 @@ function readAuth(apiUrlOverride, { requireApiKey = true } = {}) {
     process.env.POSTPLAN_API_URL ||
     config.apiUrl
   );
-  if (!apiUrl) throw new CliError("Missing API URL. Run: postplan-r2 auth set <api-key> --api-url <url>");
+  if (!apiUrl) throw new CliError("Missing API URL. Run: postplan auth set <api-key> --api-url <url>");
   const normalizedApiUrl = apiUrl.replace(/\/+$/, "");
   const apiKey = process.env.POSTPLAN_API_KEY || credentials.apiKey;
 
   if (requireApiKey && !apiKey) {
-    throw new CliError("Missing API key. Run: postplan-r2 auth set <api-key> --api-url <url>");
+    throw new CliError("Missing API key. Run: postplan auth set <api-key> --api-url <url>");
   }
 
   return { apiUrl: normalizedApiUrl, apiKey };

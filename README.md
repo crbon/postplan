@@ -44,11 +44,11 @@ Use a new Convex project and a new R2 bucket. This keeps the source project's do
    You can also configure the CLI for normal use:
 
    ```bash
-   node bin/postplan.js auth set <postplan-api-key> --api-url https://<new-deployment>.convex.site
-   node bin/postplan.js upload plan.html
+   postplan auth set <postplan-api-key> --api-url https://<new-deployment>.convex.site
+   postplan upload plan.html
    ```
 
-   Open the returned `/d/<draftId>` URL, then edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. Also generate an upload link with `node bin/postplan.js generate-upload-link`, upload a file from `/u/...`, and verify it appears in the link's file list.
+   Open the returned `/d/<draftId>` URL, then edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. Also generate an upload link with `postplan generate-upload-link`, upload a file from `/u/...`, and verify it appears in the link's file list.
 
 ## Draft dashboard
 
@@ -92,4 +92,4 @@ The dashboard is read only. Opening a draft uses its existing public `/d/<draftI
 
 Draft versions remain under `<prefix>/<draftId>/<sha256>.html`. Re-uploading the same file path updates the draft's stable `/d/<draftId>` URL. The R2 bucket stays private; Convex fetches draft HTML with short-lived signed URLs. The presigner uses the R2 account host, puts the bucket in the URL path, and signs with region `auto`.
 
-The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. The original [postplan](https://www.npmjs.com/package/postplan) project is MIT licensed.
+The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. Install or link this fork to expose the `postplan` command. The original [postplan](https://www.npmjs.com/package/postplan) project is MIT licensed.

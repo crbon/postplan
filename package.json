@@ -11,7 +11,7 @@
     "README.md"
   ],
   "bin": {
-    "postplan-r2": "./bin/postplan.js"
+    "postplan": "./bin/postplan.js"
   },
   "scripts": {
     "deploy": "convex deploy",

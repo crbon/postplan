@@ -10,7 +10,7 @@ import { dashboardPage, dashboardScript } from "./lib/dashboardPage";
 /**
  * The Postplan API, served by Convex with R2 object storage.
  *
- * The CLI (`postplan-r2 upload`) speaks exactly three endpoints, so those are
+ * The CLI (`postplan upload`) speaks exactly three endpoints, so those are
  * reproduced byte-for-byte in shape. Convex functions replace express and Convex
  * tables replace Postgres; the HTML itself goes to R2, which removes Railway and
  * Postgres while keeping the bytes in the configured private bucket.
