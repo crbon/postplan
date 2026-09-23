@@ -11,8 +11,8 @@ import { validateHtml } from "../src/html-policy.js";
 // Single source of truth for the version: package.json. CI bumps it on every
 // merge to main, so a hardcoded copy here would immediately drift.
 const { version: VERSION } = createRequire(import.meta.url)("../package.json");
-// This fork has its own CLI state and requires an explicit deployment URL.
-const POSTPLAN_DIR = process.env.POSTPLAN_STATE_DIR || path.join(os.homedir(), ".postplan-r2");
+// CLI state defaults to ~/.postplan and requires an explicit deployment URL.
+const POSTPLAN_DIR = process.env.POSTPLAN_STATE_DIR || path.join(os.homedir(), ".postplan");
 const CONFIG_PATH = path.join(POSTPLAN_DIR, "config.json");
 const CREDENTIALS_PATH = path.join(POSTPLAN_DIR, "credentials.json");
 const DRAFTS_PATH = path.join(POSTPLAN_DIR, "drafts.json");

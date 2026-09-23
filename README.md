@@ -134,7 +134,7 @@ pnpm link --global
 postplan --help
 ```
 
-Save the production API key in the fork's CLI configuration. The key is stored under `~/.postplan-r2`, separate from the source CLI. In zsh:
+Save the production API key in the CLI configuration under `~/.postplan`. In zsh:
 
 ```zsh
 read -s 'POSTPLAN_API_KEY?Production API key: '; print
@@ -192,4 +192,4 @@ The dashboard is read only. Opening a draft uses its existing public `/d/<draftI
 
 Draft versions remain under `<prefix>/<draftId>/<sha256>.html`. Re-uploading the same file path updates the draft's stable `/d/<draftId>` URL. The R2 bucket stays private; Convex fetches draft HTML with short-lived signed URLs. The presigner uses the R2 account host, puts the bucket in the URL path, and signs with region `auto`.
 
-The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. Install or link this fork to expose the `postplan` command. The original [`postplan` npm package](https://www.npmjs.com/package/postplan) is MIT licensed.
+The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan/config.json`. It requires an explicit URL. Install or link this fork to expose the `postplan` command. The original [`postplan` npm package](https://www.npmjs.com/package/postplan) is MIT licensed.
