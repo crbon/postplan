@@ -30,6 +30,7 @@ export type S3Config = {
   bucket: string;
   region: string;
   prefix: string;
+  endpoint: string;
 };
 
 export function s3Config(): S3Config {
@@ -38,12 +39,23 @@ export function s3Config(): S3Config {
   const bucket = process.env.S3_BUCKET;
   const region = process.env.S3_REGION;
   const prefix = process.env.S3_PREFIX;
-  if (!accessKeyId || !secretAccessKey || !bucket || !region || !prefix) {
+  const endpoint = process.env.S3_ENDPOINT;
+  if (!accessKeyId || !secretAccessKey || !bucket || !region || !prefix || !endpoint) {
     throw new Error(
-      "S3 env vars missing. Set S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET, S3_REGION and S3_PREFIX with `npx convex env set`.",
+      "R2 env vars missing. Set S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET, S3_REGION, S3_PREFIX and S3_ENDPOINT with `pnpm exec convex env set --prod`.",
     );
   }
-  return { accessKeyId, secretAccessKey, bucket, region, prefix };
+  if (region !== "auto") throw new Error("S3_REGION must be auto for R2.");
+  const url = new URL(endpoint);
+  if (
+    url.protocol !== "https:" ||
+    !/^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(url.hostname) ||
+    url.port || url.pathname !== "/" || url.search || url.hash ||
+    url.username || url.password
+  ) {
+    throw new Error("S3_ENDPOINT must be the R2 account URL: https://<account-id>.r2.cloudflarestorage.com");
+  }
+  return { accessKeyId, secretAccessKey, bucket, region, prefix, endpoint: url.origin };
 }
 
 /** Percent-encode per RFC 3986; S3 keeps "/" literal in the canonical URI. */
@@ -65,8 +77,10 @@ export async function presign(
   method: "GET" | "PUT" | "DELETE",
   key: string,
   expiresIn: number,
+  contentType?: string,
 ): Promise<string> {
-  const host = `${config.bucket}.s3.${config.region}.amazonaws.com`;
+  const host = new URL(config.endpoint).host;
+  const path = encodePath(`/${config.bucket}/${key}`);
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
@@ -74,10 +88,11 @@ export async function presign(
 
   const query = new URLSearchParams({
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
     "X-Amz-Credential": `${config.accessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(Math.min(expiresIn, 604800)),
-    "X-Amz-SignedHeaders": "host",
+    "X-Amz-SignedHeaders": contentType ? "content-type;host" : "host",
   });
   // S3 requires the canonical query string sorted by key.
   const canonicalQuery = [...query.entries()]
@@ -87,10 +102,10 @@ export async function presign(
 
   const canonicalRequest = [
     method,
-    encodePath("/" + key),
+    path,
     canonicalQuery,
-    `host:${host}\n`,
-    "host",
+    `${contentType ? `content-type:${contentType}\n` : ""}host:${host}\n`,
+    contentType ? "content-type;host" : "host",
     "UNSIGNED-PAYLOAD",
   ].join("\n");
 
@@ -110,7 +125,7 @@ export async function presign(
   }
   const signature = hex(await hmac(signingKey, stringToSign));
 
-  return `https://${host}${encodePath("/" + key)}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+  return `${config.endpoint}${path}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
 /** Object key for one draft version, addressed by content hash. */

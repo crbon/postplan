@@ -11,10 +11,8 @@ import { validateHtml } from "../src/html-policy.js";
 // Single source of truth for the version: package.json. CI bumps it on every
 // merge to main, so a hardcoded copy here would immediately drift.
 const { version: VERSION } = createRequire(import.meta.url)("../package.json");
-// No deployment is baked in: point the CLI at your own instance with
-// `postplan-aryan auth set <key> --api-url <url>`, or POSTPLAN_API_URL.
-const DEFAULT_API_URL = process.env.POSTPLAN_API_URL || "https://postplan.dev";
-const POSTPLAN_DIR = path.join(os.homedir(), ".postplan");
+// This fork has its own CLI state and requires an explicit deployment URL.
+const POSTPLAN_DIR = process.env.POSTPLAN_STATE_DIR || path.join(os.homedir(), ".postplan-r2");
 const CONFIG_PATH = path.join(POSTPLAN_DIR, "config.json");
 const CREDENTIALS_PATH = path.join(POSTPLAN_DIR, "credentials.json");
 const DRAFTS_PATH = path.join(POSTPLAN_DIR, "drafts.json");
@@ -40,8 +38,8 @@ function guessType(name) {
 const program = new Command();
 
 program
-  .name("postplan")
-  .description("Upload static HTML drafts to Postplan.")
+  .name("postplan-r2")
+  .description("Upload static HTML drafts to a Convex and R2 Postplan instance.")
   .version(VERSION);
 
 const authCommand = program.command("auth").description("Manage CLI authentication.");
@@ -51,7 +49,9 @@ authCommand
   .argument("<api-key>", "Postplan API key")
   .option("--api-url <url>", "Override the default Postplan API base URL")
   .action((apiKey, options) => {
-    saveCredentials(apiKey, options.apiUrl);
+    const apiUrl = options.apiUrl || process.env.POSTPLAN_API_URL || readJson(CONFIG_PATH, {}).apiUrl;
+    if (!apiUrl) throw new CliError("Missing API URL. Pass --api-url https://<deployment>.convex.site");
+    saveCredentials(apiKey, apiUrl);
     console.log("Postplan credentials saved.");
   });
 
@@ -96,7 +96,7 @@ authCommand
       throw new CliError(body.error || "That key was rejected. Nothing saved.");
     }
 
-    saveCredentials(apiKey, options.apiUrl);
+    saveCredentials(apiKey, apiUrl);
     console.log(`\nLogged in as ${body.accountName} (key: ${body.apiKeyName}).`);
   });
 
@@ -126,7 +126,7 @@ program
   .description("Upload or update an HTML draft.")
   .action(async (file, options) => {
     const resolvedFile = path.resolve(file);
-    const { apiUrl, apiKey } = readAuth(options.apiUrl, { requireApiKey: false });
+    const { apiUrl, apiKey } = readAuth(options.apiUrl);
 
     if (!fs.existsSync(resolvedFile)) {
       throw new CliError(`File does not exist: ${resolvedFile}`);
@@ -368,16 +368,17 @@ function readAuth(apiUrlOverride, { requireApiKey = true } = {}) {
   const apiUrl = (
     apiUrlOverride ||
     process.env.POSTPLAN_API_URL ||
-    config.apiUrl ||
-    DEFAULT_API_URL
-  ).replace(/\/+$/, "");
+    config.apiUrl
+  );
+  if (!apiUrl) throw new CliError("Missing API URL. Run: postplan-r2 auth set <api-key> --api-url <url>");
+  const normalizedApiUrl = apiUrl.replace(/\/+$/, "");
   const apiKey = process.env.POSTPLAN_API_KEY || credentials.apiKey;
 
   if (requireApiKey && !apiKey) {
-    throw new CliError("Missing API key. Run: postplan auth set <api-key>");
+    throw new CliError("Missing API key. Run: postplan-r2 auth set <api-key> --api-url <url>");
   }
 
-  return { apiUrl, apiKey };
+  return { apiUrl: normalizedApiUrl, apiKey };
 }
 
 function ensureStateDir() {

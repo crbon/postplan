@@ -7,12 +7,12 @@ import { uploadPage } from "./lib/uploadPage";
 import { downloadPage } from "./lib/downloadPage";
 
 /**
- * The Postplan API, served by Convex instead of express + Postgres + S3.
+ * The Postplan API, served by Convex with R2 object storage.
  *
- * The CLI (`npx postplan upload`) speaks exactly three endpoints, so those are
+ * The CLI (`postplan-r2 upload`) speaks exactly three endpoints, so those are
  * reproduced byte-for-byte in shape. Convex functions replace express and Convex
- * tables replace Postgres; the HTML itself goes to S3, which removes Railway and
- * Postgres but keeps the bytes somewhere Aryan owns.
+ * tables replace Postgres; the HTML itself goes to R2, which removes Railway and
+ * Postgres while keeping the bytes in the configured private bucket.
  */
 
 const MAX_HTML_BYTES = Number(process.env.MAX_HTML_BYTES ?? 512 * 1024);
@@ -24,13 +24,11 @@ const json = (body: unknown, status = 200) =>
   });
 
 /**
- * Bearer auth. With POSTPLAN_API_KEY set, a matching key is required; without
- * it the deployment is open, which is fine for a single-user instance and is
- * how the CLI already behaves (it only sends the header when a key exists).
+ * Bearer auth. An unset POSTPLAN_API_KEY keeps the owner endpoints closed.
  */
 function authorize(request: Request): { ok: true; account: string } | { ok: false } {
   const expected = process.env.POSTPLAN_API_KEY;
-  if (!expected) return { ok: true, account: "open" };
+  if (!expected) return { ok: false };
   const header = request.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   return token && token === expected ? { ok: true, account: "owner" } : { ok: false };
@@ -124,13 +122,14 @@ http.route({
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(html));
     const sha256 = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 
-    // Bytes go to S3, addressed by content hash: uploading the same HTML twice
+    // Bytes go to R2, addressed by content hash: uploading the same HTML twice
     // is idempotent, and a failed PUT leaves no row pointing at nothing.
     const config = s3Config();
     const key = draftKey(config, id, sha256);
-    const put = await fetch(await presign(config, "PUT", key, 300), {
+    const contentType = "text/html; charset=utf-8";
+    const put = await fetch(await presign(config, "PUT", key, 300, contentType), {
       method: "PUT",
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: { "Content-Type": contentType },
       body: html,
     });
     if (!put.ok) return json({ error: `Storage upload failed (${put.status}).` }, 502);
@@ -243,7 +242,7 @@ http.route({
       const config = s3Config();
       const suffix = name.includes(".") ? name.slice(name.lastIndexOf(".")).toLowerCase().slice(0, 20) : "";
       const key = `${config.prefix}/uploads/${slug}/${found.files.length + 1}${suffix}`;
-      return json({ key, url: await presign(config, "PUT", key, 3600) });
+      return json({ key, url: await presign(config, "PUT", key, 3600, contentType) });
     }
 
     const { key, name, size, contentType } = fields;

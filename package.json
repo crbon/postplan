@@ -1,7 +1,7 @@
 {
-  "name": "postplan-aryan",
+  "name": "postplan-convex-r2",
   "version": "0.4.0",
-  "description": "Publish a self-contained HTML document and get a link. Convex + S3 backend. Fork of postplan (MIT, t3dotgg).",
+  "description": "Publish a self-contained HTML document and get a link. Convex + Cloudflare R2 backend.",
   "type": "module",
   "license": "MIT",
   "files": [
@@ -11,12 +11,14 @@
     "README.md"
   ],
   "bin": {
-    "postplan-aryan": "./bin/postplan.js"
+    "postplan-r2": "./bin/postplan.js"
   },
   "scripts": {
     "deploy": "convex deploy",
     "logs": "convex logs --prod",
-    "test": "node --test test/*.test.js"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:r2": "node --import tsx --test test/r2.integration.ts",
+    "test:e2e": "node --import tsx --test test/e2e.integration.ts"
   },
   "engines": {
     "node": ">=20"
@@ -26,12 +28,8 @@
     "nanoid": "^5.1.5",
     "parse5": "^7.3.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Aryan-Saini/postplan-convex.git"
-  },
-  "homepage": "https://github.com/Aryan-Saini/postplan-convex",
   "devDependencies": {
-    "convex": "^1.43.0"
+    "convex": "^1.43.0",
+    "tsx": "^4.23.15"
   }
 }

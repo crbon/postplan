@@ -1,65 +1,57 @@
-# postplan-aryan
+# postplan-convex-r2
 
-Publish a self-contained HTML document and get a link back. A fork of
-[postplan](https://www.npmjs.com/package/postplan) (MIT, t3dotgg) with the
-express + Postgres + S3 server replaced by **Convex** functions and tables.
+This is a local fork of [postplan-convex](https://github.com/Aryan-Saini/postplan-convex). It stores document HTML and file uploads in a private Cloudflare R2 bucket while Convex holds metadata and serves the API and document pages. The CLI keeps the same upload API and draft URLs.
 
-```bash
-npx postplan-aryan auth set <api-key> --api-url https://<your-deployment>.convex.site
-npx postplan-aryan upload plan.html
-```
+## Set up a separate production instance
 
-The CLI is upstream's, unmodified. No deployment is baked into the published
-package: it reads `--api-url`, then `POSTPLAN_API_URL`, then
-`~/.postplan/config.json`. Point it at your own instance.
+Use a new Convex project and a new R2 bucket. This keeps the source project's documents and links on its existing deployment. Existing S3 objects do not move automatically.
 
-## Where uploads go
+1. Create a private R2 bucket. Create an R2 API token with **Object Read & Write** access limited to that bucket. Save its Access Key ID, Secret Access Key, and the account endpoint shown by Cloudflare. The endpoint has the form `https://<account-id>.r2.cloudflarestorage.com`. Do not enable public bucket access. Cloudflare's [S3 setup guide](https://developers.cloudflare.com/r2/get-started/s3/) has the current dashboard steps.
+2. Create a separate Convex project and copy `.env.example` to `.env.local`. Fill in that project's production deployment name and URLs. Use the `.convex.site` URL for the API and public document links. Do not run `convex dev` for this production-only fork.
+3. Install dependencies with `pnpm install`, then set the server variables on the new Convex production deployment:
 
-Uploads go to whichever instance you configured — **not** `postplan.dev`. Run
-`auth set` once per machine; without it the CLI falls back to `postplan.dev`,
-which is somebody else's server.
+   ```bash
+   pnpm exec convex env set --prod S3_BUCKET <new-r2-bucket>
+   pnpm exec convex env set --prod S3_REGION auto
+   pnpm exec convex env set --prod S3_ENDPOINT https://<account-id>.r2.cloudflarestorage.com
+   pnpm exec convex env set --prod S3_PREFIX <private-prefix>
+   pnpm exec convex env set --prod S3_ACCESS_KEY_ID <r2-access-key-id>
+   pnpm exec convex env set --prod S3_SECRET_ACCESS_KEY <r2-secret-access-key>
+   pnpm exec convex env set --prod POSTPLAN_PUBLIC_BASE_URL https://<new-deployment>.convex.site
+   pnpm exec convex env set --prod POSTPLAN_API_KEY <long-random-key>
+   ```
 
-The instance stores each document in its S3 bucket and serves it at
-`/d/<draftId>`. Re-uploading the same file path updates that URL in place and
-bumps the version, so a link you already sent keeps working and keeps showing the
-latest. `--new` starts a separate draft instead.
+   `POSTPLAN_API_KEY` protects draft uploads. Owner endpoints reject requests while it is unset. Keep all secrets in Convex environment variables, never in this repository.
 
-Draft ids are random and unguessable, and there is no listing URL: a link leads to
-one document and nothing else. `/d/<id>/raw` returns the source.
+4. Add this CORS policy to the R2 bucket, replacing the origin with the exact Convex site origin or the exact custom domain that serves `/u/...`:
 
-## Self-hosting
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://<new-deployment>.convex.site"],
+       "AllowedMethods": ["PUT"],
+       "AllowedHeaders": ["Content-Type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
 
-You need a Convex project and an S3 bucket. No Postgres, no Railway.
+   The `/u/...` page uploads directly to R2 with a presigned `PUT`. Its `Content-Type` must match the signed value. CLI document uploads and `/d/...` reads pass through Convex, so they do not need browser CORS access. See Cloudflare's [CORS guide](https://developers.cloudflare.com/r2/buckets/cors/).
 
-1. `npm install`
-2. Copy `.env.example` to `.env.local` and fill in your deployment.
-3. Set the server env vars on your deployment:
+5. Run `pnpm test`. Export the six `S3_*` values above in your local shell, then run `pnpm test:r2` to exercise signed `PUT`, `GET`, and `DELETE` against the new bucket. The integration test deletes its own test object.
+6. Deploy with `pnpm exec convex deploy` once the environment and R2 transfer test are ready. Export `POSTPLAN_API_URL` and `POSTPLAN_API_KEY` for the new deployment, then run `pnpm test:e2e`. It tests CLI upload and re-upload, document viewing, browser upload signing, and the R2 CORS preflight. It leaves one test draft and one upload request in Convex.
 
-```bash
-npx convex env set --prod S3_BUCKET <bucket>
-npx convex env set --prod S3_REGION <region>
-npx convex env set --prod S3_PREFIX <prefix>
-npx convex env set --prod S3_ACCESS_KEY_ID <key>
-npx convex env set --prod S3_SECRET_ACCESS_KEY <secret>
-npx convex env set --prod POSTPLAN_PUBLIC_BASE_URL https://<deployment>.convex.site
-npx convex env set --prod POSTPLAN_API_KEY <a long random string>
-```
+   You can also configure the CLI for normal use:
 
-**Set `POSTPLAN_API_KEY`.** With it unset the upload endpoint is open, and anyone
-who learns your deployment URL can write HTML into your bucket and have it served
-from your origin.
+   ```bash
+   node bin/postplan.js auth set <postplan-api-key> --api-url https://<new-deployment>.convex.site
+   node bin/postplan.js upload plan.html
+   ```
 
-4. `npx convex deploy`
+   Open the returned `/d/<draftId>` URL, then edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. Also generate an upload link with `node bin/postplan.js generate-upload-link`, upload a file from `/u/...`, and verify it appears in the link's file list.
 
-Give the bucket a private prefix for drafts; they are reachable only through
-`/d/<draftId>`. Use an IAM user scoped to that prefix, with no `ListBucket`.
+## Storage and URLs
 
-## What changed from upstream
+Draft versions remain under `<prefix>/<draftId>/<sha256>.html`. Re-uploading the same file path updates the draft's stable `/d/<draftId>` URL. The R2 bucket stays private; Convex fetches draft HTML with short-lived signed URLs. The presigner uses the R2 account host, puts the bucket in the URL path, and signs with region `auto`.
 
-- `express` + `pg` + `@aws-sdk/client-s3` + `jose` are gone; Convex serves the API
-  and holds drafts and versions.
-- HTML goes to S3 addressed by content hash, so re-uploading identical HTML is
-  idempotent.
-- `src/html-policy.js` is unchanged apart from `Buffer.byteLength` becoming
-  `TextEncoder`, since Convex is V8 without Node globals. It is still enforced
-  server side.
+The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. The original [postplan](https://www.npmjs.com/package/postplan) project is MIT licensed.
