@@ -14,7 +14,7 @@ test("CLI re-upload and browser upload work on the deployed Convex and R2 instan
   const apiKey = process.env.POSTPLAN_API_KEY;
   assert.ok(apiUrl && apiKey, "Set POSTPLAN_API_URL and POSTPLAN_API_KEY for the fork deployment");
   const origin = new URL(apiUrl).origin;
-  const directory = await mkdtemp(join(tmpdir(), "postplan-r2-e2e-"));
+  const directory = await mkdtemp(join(tmpdir(), "postplan-e2e-"));
   const htmlFile = join(directory, "smoke.html");
   const cli = resolve("bin/postplan.js");
   const cliEnv = { ...process.env, POSTPLAN_API_URL: apiUrl, POSTPLAN_API_KEY: apiKey, POSTPLAN_STATE_DIR: directory };

@@ -1,54 +1,154 @@
-# postplan-convex-r2
+# Postplan
 
-This is a local fork of [postplan-convex](https://github.com/Aryan-Saini/postplan-convex). It stores document HTML and file uploads in a private Cloudflare R2 bucket while Convex holds metadata and serves the API and document pages. The CLI keeps the same upload API and draft URLs.
+This Postplan fork builds on [upstream Postplan Convex](https://github.com/Aryan-Saini/postplan-convex). Convex serves the API and document pages and stores metadata. Private Cloudflare R2 stores document HTML and uploaded files. The fork keeps the existing upload API, CLI behavior, and draft URLs.
 
-## Set up a separate production instance
+## Set up on a new machine
 
-Use a new Convex project and a new R2 bucket. This keeps the source project's documents and links on its existing deployment. Existing S3 objects do not move automatically.
+This fork needs its own Convex project and private R2 bucket. Do not connect it to the source Postplan project. Existing S3 objects do not move to R2 automatically.
 
-1. Create a private R2 bucket. Create an R2 API token with **Object Read & Write** access limited to that bucket. Save its Access Key ID, Secret Access Key, and the account endpoint shown by Cloudflare. The endpoint has the form `https://<account-id>.r2.cloudflarestorage.com`. Do not enable public bucket access. Cloudflare's [S3 setup guide](https://developers.cloudflare.com/r2/get-started/s3/) has the current dashboard steps.
-2. Create a separate Convex project and copy `.env.example` to `.env.local`. Fill in that project's production deployment name and URLs. Use the `.convex.site` URL for the API and public document links. Do not run `convex dev` for this production-only fork.
-3. Install dependencies with `pnpm install`, then set the server variables on the new Convex production deployment:
+### Create the cloud resources
 
-   ```bash
-   pnpm exec convex env set --prod S3_BUCKET <new-r2-bucket>
-   pnpm exec convex env set --prod S3_REGION auto
-   pnpm exec convex env set --prod S3_ENDPOINT https://<account-id>.r2.cloudflarestorage.com
-   pnpm exec convex env set --prod S3_PREFIX <private-prefix>
-   pnpm exec convex env set --prod S3_ACCESS_KEY_ID <r2-access-key-id>
-   pnpm exec convex env set --prod S3_SECRET_ACCESS_KEY <r2-secret-access-key>
-   pnpm exec convex env set --prod POSTPLAN_PUBLIC_BASE_URL https://<new-deployment>.convex.site
-   pnpm exec convex env set --prod POSTPLAN_API_KEY <long-random-key>
-   ```
+1. In Cloudflare, create a private R2 bucket and an API token with **Object Read & Write** permission limited to that bucket. Save the Access Key ID and Secret Access Key. Copy the account S3 endpoint, which looks like `https://<account-id>.r2.cloudflarestorage.com`. Leave public access disabled. Follow Cloudflare's [R2 S3 setup guide](https://developers.cloudflare.com/r2/get-started/s3/).
+2. In Convex, create a separate project for this fork. Keep its production deployment URL and the name of one of its development deployments handy. A Convex project has separate development and production deployments. This fork stores server settings on production only.
 
-   `POSTPLAN_API_KEY` protects draft uploads. Owner endpoints reject requests while it is unset. Keep all secrets in Convex environment variables, never in this repository.
+### Clone and select the Convex project
 
-4. Add this CORS policy to the R2 bucket, replacing the origin with the exact Convex site origin or the exact custom domain that serves `/u/...`:
+On the new machine, install Node.js 20 or newer and pnpm. Clone this repository, then install its dependencies:
 
-   ```json
-   [
-     {
-       "AllowedOrigins": ["https://<new-deployment>.convex.site"],
-       "AllowedMethods": ["PUT"],
-       "AllowedHeaders": ["Content-Type"],
-       "MaxAgeSeconds": 3600
-     }
-   ]
-   ```
+```bash
+git clone https://github.com/crbon/postplan.git
+cd postplan
+pnpm install
+```
 
-   The `/u/...` page uploads directly to R2 with a presigned `PUT`. Its `Content-Type` must match the signed value. CLI document uploads and `/d/...` reads pass through Convex, so they do not need browser CORS access. See Cloudflare's [CORS guide](https://developers.cloudflare.com/r2/buckets/cors/).
+Log in to Convex, then select a development deployment belonging to the new R2 project:
 
-5. Run `pnpm test`. Export the six `S3_*` values above in your local shell, then run `pnpm test:r2` to exercise signed `PUT`, `GET`, and `DELETE` against the new bucket. The integration test deletes its own test object.
-6. Deploy with `pnpm exec convex deploy` once the environment and R2 transfer test are ready. Export `POSTPLAN_API_URL` and `POSTPLAN_API_KEY` for the new deployment, then run `pnpm test:e2e`. It tests CLI upload and re-upload, document viewing, browser upload signing, and the R2 CORS preflight. It leaves one test draft and one upload request in Convex.
+```bash
+pnpm exec convex login
+pnpm exec convex deployment select <r2-project-dev-deployment>
+```
 
-   You can also configure the CLI for normal use:
+The CLI writes `.env.local` for this checkout. Do not create it by copying `.env.example` or by typing a `CONVEX_DEPLOYMENT` value yourself. Check the selection output. It must name the new R2 project. If it shows another project, stop and select the right deployment before setting environment variables. The selected development deployment identifies the project; the server settings below go to that project's production deployment. See Convex's [deployment selection guide](https://docs.convex.dev/cli/reference/deployment).
 
-   ```bash
-   postplan auth set <postplan-api-key> --api-url https://<new-deployment>.convex.site
-   postplan upload plan.html
-   ```
+Open the production deployment dashboard to confirm its project before making changes:
 
-   Open the returned `/d/<draftId>` URL, then edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. Also generate an upload link with `postplan generate-upload-link`, upload a file from `/u/...`, and verify it appears in the link's file list.
+```bash
+pnpm exec convex dashboard --prod
+```
+
+### Set production environment variables
+
+Replace the example values before running these commands. Do not type the angle brackets. Use the production `.convex.site` URL for both `POSTPLAN_PUBLIC_BASE_URL` and the CLI API URL. Pick a stable `S3_PREFIX`, such as `postplan`, and keep it unchanged so existing object keys and draft links continue to work.
+
+```bash
+pnpm exec convex env set --prod S3_BUCKET <r2-bucket-name>
+pnpm exec convex env set --prod S3_REGION auto
+pnpm exec convex env set --prod S3_PREFIX <stable-prefix>
+pnpm exec convex env set --prod S3_ENDPOINT https://<account-id>.r2.cloudflarestorage.com
+pnpm exec convex env set --prod POSTPLAN_PUBLIC_BASE_URL https://<r2-prod-deployment>.convex.site
+```
+
+Set the credentials and API key interactively so they do not appear in shell history or command arguments:
+
+```bash
+pnpm exec convex env set --prod S3_ACCESS_KEY_ID
+pnpm exec convex env set --prod S3_SECRET_ACCESS_KEY
+pnpm exec convex env set --prod POSTPLAN_API_KEY
+```
+
+Use the R2 token credentials for the first two prompts. Generate a long random API key with `openssl rand -hex 32`, save it in a password manager, then enter it at the third prompt. You will need it for the CLI. Owner endpoints reject requests while the API key is unset. Do not put these values in tracked files. See Convex's [environment variable guide](https://docs.convex.dev/cli/reference/env).
+
+Check that all eight variable names are present. This prints names only, not values:
+
+```bash
+pnpm exec convex env --prod list --names-only
+```
+
+### Configure R2 CORS
+
+In Cloudflare, open the bucket's **Settings → CORS Policy** and add the rule below. Replace the origin with the exact production `.convex.site` origin or custom domain that serves `/u/...`. Keep R2 public access disabled.
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://<r2-prod-deployment>.convex.site"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+The `/u/...` page sends browser uploads directly to R2 with a presigned `PUT`. Its `Content-Type` must match the signed value. CLI document uploads and `/d/...` reads pass through Convex and do not need browser CORS access. See Cloudflare's [CORS guide](https://developers.cloudflare.com/r2/buckets/cors/).
+
+### Test and deploy
+
+Run the local tests:
+
+```bash
+pnpm test
+```
+
+The R2 integration test needs all six `S3_*` variables in your local shell. For zsh, enter credentials without echoing them, run the test, then clear them from the shell:
+
+```zsh
+export S3_BUCKET=<r2-bucket-name> S3_REGION=auto S3_PREFIX=<stable-prefix>
+read -s 'S3_ENDPOINT?R2 endpoint: '; print
+export S3_ENDPOINT
+read -s 'S3_ACCESS_KEY_ID?R2 Access Key ID: '; print
+export S3_ACCESS_KEY_ID
+read -s 'S3_SECRET_ACCESS_KEY?R2 Secret Access Key: '; print
+export S3_SECRET_ACCESS_KEY
+
+pnpm test:r2
+
+unset S3_BUCKET S3_REGION S3_PREFIX S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY
+```
+
+The test uploads, downloads, and deletes its own temporary object. Deploy only after the environment and transfer test are ready. `pnpm exec convex deploy` deploys to production for the project selected above. Read the confirmation prompt before accepting. See Convex's [deploy command guide](https://docs.convex.dev/cli/reference/deploy):
+
+```bash
+pnpm exec convex deploy
+```
+
+Then test the deployed API and browser upload flow. This test creates a draft, an upload request, and a test file in R2, and leaves them in place:
+
+```zsh
+export POSTPLAN_API_URL=https://<r2-prod-deployment>.convex.site
+read -s 'POSTPLAN_API_KEY?Production API key: '; print
+export POSTPLAN_API_KEY
+
+pnpm test:e2e
+
+unset POSTPLAN_API_URL POSTPLAN_API_KEY
+```
+
+The test checks CLI upload and re-upload, document viewing, upload-link creation, browser upload signing, and the R2 CORS preflight.
+
+### Use the `postplan` command
+
+Link this checkout so your shell can run the `postplan` command:
+
+```bash
+pnpm link --global
+postplan --help
+```
+
+Save the production API key in the fork's CLI configuration. The key is stored under `~/.postplan-r2`, separate from the source CLI. In zsh:
+
+```zsh
+read -s 'POSTPLAN_API_KEY?Production API key: '; print
+postplan auth set "$POSTPLAN_API_KEY" --api-url https://<r2-prod-deployment>.convex.site
+unset POSTPLAN_API_KEY
+```
+
+Upload an HTML document:
+
+```bash
+postplan upload plan.html
+```
+
+Open the returned `/d/<draftId>` URL. Edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. To receive files through a browser upload page, run `postplan generate-upload-link`, open its `/u/...` link, and check the file list.
 
 ## Draft dashboard
 
@@ -92,4 +192,4 @@ The dashboard is read only. Opening a draft uses its existing public `/d/<draftI
 
 Draft versions remain under `<prefix>/<draftId>/<sha256>.html`. Re-uploading the same file path updates the draft's stable `/d/<draftId>` URL. The R2 bucket stays private; Convex fetches draft HTML with short-lived signed URLs. The presigner uses the R2 account host, puts the bucket in the URL path, and signs with region `auto`.
 
-The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. Install or link this fork to expose the `postplan` command. The original [postplan](https://www.npmjs.com/package/postplan) project is MIT licensed.
+The CLI reads `--api-url`, then `POSTPLAN_API_URL`, then `~/.postplan-r2/config.json`. It requires an explicit URL and keeps its credentials and draft mapping separate from the source CLI. Install or link this fork to expose the `postplan` command. The original [`postplan` npm package](https://www.npmjs.com/package/postplan) is MIT licensed.

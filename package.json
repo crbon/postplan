@@ -1,7 +1,8 @@
 {
-  "name": "postplan-convex-r2",
+  "name": "postplan",
   "version": "0.4.0",
-  "description": "Publish a self-contained HTML document and get a link. Convex + Cloudflare R2 backend.",
+  "description": "Publish a self-contained HTML document with Convex and private Cloudflare R2 storage.",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "files": [

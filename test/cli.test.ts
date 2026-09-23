@@ -9,7 +9,7 @@ import { test } from "node:test";
 const run = promisify(execFile);
 
 test("fork CLI requires an explicit deployment URL and API key", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "postplan-r2-cli-"));
+  const directory = await mkdtemp(join(tmpdir(), "postplan-cli-"));
   const file = join(directory, "draft.html");
   await writeFile(file, "<!doctype html><title>Test</title><p>Safe document</p>");
   const env = { ...process.env, POSTPLAN_STATE_DIR: directory };

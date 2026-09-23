@@ -1,6 +1,6 @@
-# postplan-convex-r2
+# Postplan
 
-This fork uses a separate Convex production deployment and a private Cloudflare R2 bucket. Keep deployment names, bucket names, prefixes, account IDs, API keys, and secrets out of tracked files. Use `.env.local` for the Convex deployment and Convex production environment variables for server settings.
+This Postplan fork uses Convex for its API and metadata and a private Cloudflare R2 bucket for document and upload files. Keep deployment names, bucket names, prefixes, account IDs, API keys, and secrets out of tracked files. Use `.env.local` for the Convex deployment and Convex production environment variables for server settings.
 
 Read `README.md` when changing deployment or storage setup. Run `pnpm test` for signer changes and `pnpm test:r2` with credentials for real R2 transfers. Deploy only to this fork's production deployment with `pnpm exec convex deploy`; `convex dev` would create an unintended dev deployment.
 
