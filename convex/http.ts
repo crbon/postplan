@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { validateHtml } from "../src/html-policy.js";
-import { draftKey, presign, s3Config } from "./lib/s3";
+import { draftKey, presign, s3Config, s3Host } from "./lib/s3";
 import { uploadPage } from "./lib/uploadPage";
 import { downloadPage } from "./lib/downloadPage";
 import { dashboardPage, dashboardScript } from "./lib/dashboardPage";
@@ -292,22 +292,66 @@ http.route({
   }),
 });
 
-/** The page itself. */
+/**
+ * The sandbox for our own two file pages.
+ *
+ * Same shape as the draft CSP below, with one deliberate hole: `connect-src` names
+ * this origin (the sign and record calls) and the S3 bucket host derived from
+ * `s3Config()` at request time, because the upload page PUTs bytes straight to S3
+ * and the download page fetches text files to preview them. `blob:` is in `img-src`
+ * and `media-src` so a picked file can be shown before it is sent. Everything else
+ * is off: no frames in either direction, no forms, no workers, no base retargeting.
+ * `frame-src 'none'` is why the PDF preview is a panel and not an iframe.
+ */
+const filePageCsp = (): string =>
+  [
+    "default-src 'none'",
+    "img-src https: data: blob:",
+    "media-src https: data: blob:",
+    "style-src 'unsafe-inline'",
+    "font-src data:",
+    "script-src 'unsafe-inline'",
+    `connect-src 'self' https://${s3Host(s3Config())}`,
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'none'",
+    "base-uri 'none'",
+    "worker-src 'none'",
+  ].join("; ");
+
+const filePageHeaders = () => ({
+  "Content-Type": "text/html; charset=utf-8",
+  "Content-Security-Policy": filePageCsp(),
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+});
+
+/** A dead link or an expired one: same plain page, same headers. */
+const filePageNotice = (title: string, text: string, status: number) =>
+  new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">`
+      + `<meta name="viewport" content="width=device-width,initial-scale=1">`
+      + `<meta name="color-scheme" content="dark"><title>${title}</title></head>`
+      + `<body style="margin:0;background:#000;color:#898781;font:17px/1.5 system-ui,-apple-system,sans-serif">`
+      + `<main style="width:min(560px,calc(100% - 32px));margin:0 auto;padding:44px 0">${text}</main></body></html>`,
+    { status, headers: filePageHeaders() },
+  );
+
+/** The page someone opens to send files in. */
 http.route({
   pathPrefix: "/u/",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const slug = decodeURIComponent(new URL(request.url).pathname.slice("/u/".length).replace(/\/+$/, ""));
     const found = await ctx.runQuery(internal.uploads.bySlug, { slug });
-    const page = (body: string, status: number) =>
-      new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
-    if (!found) {
-      return page("<!doctype html><meta charset=utf-8><title>Not found</title><body style='background:#000;color:#71717a;font:16px system-ui;padding:48px'>That link is not valid any more.", 404);
-    }
+    if (!found) return filePageNotice("Not found", "That link is not valid any more.", 404);
     if (found.request.expiresAt < Date.now()) {
-      return page("<!doctype html><meta charset=utf-8><title>Expired</title><body style='background:#000;color:#71717a;font:16px system-ui;padding:48px'>This upload link has expired.", 410);
+      return filePageNotice("Expired", "This upload link has expired.", 410);
     }
-    return page(uploadPage(slug, found.request.reason, found.files), 200);
+    return new Response(
+      uploadPage(slug, found.request.reason, found.files, found.request.expiresAt),
+      { status: 200, headers: filePageHeaders() },
+    );
   }),
 });
 
@@ -318,13 +362,9 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const slug = decodeURIComponent(new URL(request.url).pathname.slice("/s/".length).replace(/\/+$/, ""));
     const found = await ctx.runQuery(internal.uploads.bySlug, { slug });
-    const page = (body: string, status: number) =>
-      new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
-    if (!found) {
-      return page("<!doctype html><meta charset=utf-8><title>Not found</title><body style='background:#000;color:#71717a;font:16px system-ui;padding:48px'>That link is not valid any more.", 404);
-    }
+    if (!found) return filePageNotice("Not found", "That link is not valid any more.", 404);
     if (found.request.expiresAt < Date.now()) {
-      return page("<!doctype html><meta charset=utf-8><title>Expired</title><body style='background:#000;color:#71717a;font:16px system-ui;padding:48px'>This link has expired.", 410);
+      return filePageNotice("Expired", "This link has expired.", 410);
     }
     const config = s3Config();
     const files = await Promise.all(
@@ -335,9 +375,64 @@ http.route({
         url: await presign(config, "GET", f.key, 3600),
       })),
     );
-    return page(downloadPage(slug, found.request.reason, files), 200);
+    // "Sent" is when the last file landed; for an empty link, when the link was made.
+    const sentAt = found.files.reduce(
+      (latest, f) => Math.max(latest, f.uploadedAt),
+      found.request._creationTime,
+    );
+    return new Response(
+      downloadPage({
+        reason: found.request.reason,
+        files,
+        sentAt,
+        expiresAt: found.request.expiresAt,
+      }),
+      { status: 200, headers: filePageHeaders() },
+    );
   }),
 });
+
+/**
+ * The sandbox for served drafts, enforced by the browser.
+ *
+ * The upload policy (`src/html-policy.js`) allows inline classic `<script>`, so the
+ * CSP has to keep `script-src 'unsafe-inline'` -- a draft's own scripts still run.
+ * What it takes away is everything that script could reach out with: `connect-src
+ * 'none'` kills fetch/XHR/WebSocket/beacon, `frame-src`/`frame-ancestors 'none'`
+ * stops it framing anything or being framed, `form-action 'none'` stops posts,
+ * `worker-src 'none'` stops workers, and `base-uri 'none'` stops base-tag
+ * retargeting. Images, media and fonts are the only remote loads left.
+ *
+ * What it does NOT do: it cannot block same-origin DOM or storage APIs, so a draft
+ * can still read and write `localStorage`/`sessionStorage`/cookies for this origin,
+ * and it does nothing at all for non-browser clients like curl -- the bytes are
+ * served verbatim either way.
+ *
+ * This covers `/d/` only. The `/u/` and `/s/` pages are our own HTML, not uploaded
+ * HTML, and they need cross-origin fetch, PUT and framing against S3, so they are
+ * deliberately left out of it.
+ */
+const CSP = [
+  "default-src 'none'",
+  "img-src https: data:",
+  "media-src https: data:",
+  "style-src 'unsafe-inline'",
+  "font-src data:",
+  "script-src 'unsafe-inline'",
+  "connect-src 'none'",
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'none'",
+  "base-uri 'none'",
+  "worker-src 'none'",
+].join("; ");
+
+/** Headers for the uploaded HTML we serve from this origin: the sandbox above, plus no sniffing. */
+const htmlSecurityHeaders = {
+  "Content-Security-Policy": CSP,
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+} as const;
 
 /** The published document. Serving it here keeps the URL stable across versions. */
 async function serveDraft(ctx: any, request: Request, raw: boolean): Promise<Response> {
@@ -349,7 +444,10 @@ async function serveDraft(ctx: any, request: Request, raw: boolean): Promise<Res
   if (!found) {
     return new Response("<!doctype html><meta charset=utf-8><title>Not found</title>"
       + "<body style='background:#000;color:#888;font:16px system-ui;padding:48px'>No such draft.",
-      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } });
+      {
+        status: 404,
+        headers: { "Content-Type": "text/html; charset=utf-8", ...htmlSecurityHeaders },
+      });
   }
   const config = s3Config();
   const upstream = await fetch(await presign(config, "GET", found.version.key, 120));
@@ -360,6 +458,8 @@ async function serveDraft(ctx: any, request: Request, raw: boolean): Promise<Res
       "Content-Type": raw ? "text/plain; charset=utf-8" : "text/html; charset=utf-8",
       "Cache-Control": "private, max-age=30",
       "X-Postplan-Version": String(found.version.versionNumber),
+      // /raw is plain text and is never rendered, so it needs nosniff but no CSP.
+      ...(raw ? { "X-Content-Type-Options": "nosniff" } : htmlSecurityHeaders),
     },
   });
 }

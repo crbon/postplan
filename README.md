@@ -54,6 +54,38 @@ Use a new Convex project and a new R2 bucket. This keeps the source project's do
 
 Open `https://<new-deployment>.convex.site/dashboard` and enter the deployment's `POSTPLAN_API_KEY`. The page lists the 100 most recently updated drafts and supports search and repository filtering. The key stays in the browser tab's session storage and the dashboard sends it only to the same-origin `/api/drafts` endpoint.
 
+## Content-Security-Policy
+
+`GET /d/<draftId>` sets:
+
+```
+default-src 'none'; img-src https: data:; media-src https: data:; style-src 'unsafe-inline'; font-src data:; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'; worker-src 'none'
+```
+
+plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. The
+not-found page carries the same headers. `/d/<draftId>/raw` is `text/plain` with
+`nosniff` and no CSP, because it is never rendered.
+
+What it guarantees, in a browser: the upload policy allows inline classic
+`<script>`, so a draft's own scripts still run, but they cannot fetch
+(`connect-src 'none'`), frame anything or be framed, submit a form, start a
+worker, retarget relative URLs with a base tag, or load a remote script,
+stylesheet or font. Images and media may load over https or as data URIs.
+
+What it does not guarantee: it cannot block same-origin storage, so a draft can
+read and write `localStorage`, `sessionStorage` and cookies for your deployment
+origin alongside every other draft you host there. It also does nothing for
+non-browser clients; `curl` gets the bytes verbatim. Treat the upload policy in
+`src/html-policy.js`, not the CSP, as the real gate.
+
+The upload and download pages (`/u/<slug>`, `/s/<slug>`) are the server's own
+HTML rather than uploaded HTML, and they need cross-origin fetch, PUT and framing
+against S3, so they are not covered by this policy.
+
+## Rendering Markdown
+
+Being added.
+
 The dashboard is read only. Opening a draft uses its existing public `/d/<draftId>` URL, which remains accessible to anyone who has the link.
 
 ## Storage and URLs

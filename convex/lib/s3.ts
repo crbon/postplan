@@ -58,6 +58,14 @@ export function s3Config(): S3Config {
   return { accessKeyId, secretAccessKey, bucket, region, prefix, endpoint: url.origin };
 }
 
+/**
+ * The endpoint host every presigned URL points at. Exported so the pages that
+ * fetch and PUT to it can name it in their `connect-src` without hardcoding it.
+ */
+export function s3Host(config: S3Config): string {
+  return new URL(config.endpoint).host;
+}
+
 /** Percent-encode per RFC 3986; S3 keeps "/" literal in the canonical URI. */
 function encodePath(path: string): string {
   return path
