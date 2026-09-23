@@ -50,6 +50,12 @@ Use a new Convex project and a new R2 bucket. This keeps the source project's do
 
    Open the returned `/d/<draftId>` URL, then edit `plan.html` and upload it again. The URL should stay the same and `X-Postplan-Version` should increase. Also generate an upload link with `node bin/postplan.js generate-upload-link`, upload a file from `/u/...`, and verify it appears in the link's file list.
 
+## Draft dashboard
+
+Open `https://<new-deployment>.convex.site/dashboard` and enter the deployment's `POSTPLAN_API_KEY`. The page lists the 100 most recently updated drafts and supports search and repository filtering. The key stays in the browser tab's session storage and the dashboard sends it only to the same-origin `/api/drafts` endpoint.
+
+The dashboard is read only. Opening a draft uses its existing public `/d/<draftId>` URL, which remains accessible to anyone who has the link.
+
 ## Storage and URLs
 
 Draft versions remain under `<prefix>/<draftId>/<sha256>.html`. Re-uploading the same file path updates the draft's stable `/d/<draftId>` URL. The R2 bucket stays private; Convex fetches draft HTML with short-lived signed URLs. The presigner uses the R2 account host, puts the bucket in the URL path, and signs with region `auto`.

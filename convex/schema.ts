@@ -9,9 +9,15 @@ export default defineSchema({
     filename: v.string(),
     description: v.optional(v.string()),
     latestVersion: v.number(),
+    // Missing means the draft predates these fields. Null means the latest
+    // upload had no repository metadata.
+    repoName: v.optional(v.union(v.string(), v.null())),
+    repoOrg: v.optional(v.union(v.string(), v.null())),
     createdBy: v.string(),
     updatedAt: v.number(),
-  }).index("by_draftId", ["draftId"]),
+  })
+    .index("by_draftId", ["draftId"])
+    .index("by_updatedAt", ["updatedAt"]),
 
   // An upload request: a link someone opens on a phone to send files in. The slug
   // is the credential, since whoever uploads may not be the person who made it.

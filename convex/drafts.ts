@@ -13,6 +13,12 @@ export const upsert = internalMutation({
     createdBy: v.string(),
   },
   handler: async (ctx, args) => {
+    const metadata =
+      typeof args.metadata === "object" && args.metadata !== null
+        ? (args.metadata as Record<string, unknown>)
+        : {};
+    const repoName = typeof metadata.repoName === "string" ? metadata.repoName : null;
+    const repoOrg = typeof metadata.repoOrg === "string" ? metadata.repoOrg : null;
     const existing = await ctx.db
       .query("drafts")
       .withIndex("by_draftId", (q) => q.eq("draftId", args.draftId))
@@ -24,6 +30,8 @@ export const upsert = internalMutation({
         filename: args.filename,
         description: args.description ?? existing.description,
         latestVersion: versionNumber,
+        repoName,
+        repoOrg,
         updatedAt: Date.now(),
       });
     } else {
@@ -32,6 +40,8 @@ export const upsert = internalMutation({
         filename: args.filename,
         description: args.description,
         latestVersion: versionNumber,
+        repoName,
+        repoOrg,
         createdBy: args.createdBy,
         updatedAt: Date.now(),
       });
@@ -77,25 +87,38 @@ export const latest = internalQuery({
 export const list = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const drafts = await ctx.db.query("drafts").order("desc").take(100);
+    const drafts = await ctx.db
+      .query("drafts")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(100);
     // Field names match what the upstream CLI renders, or `list` prints undefined.
     return await Promise.all(
       drafts.map(async (d) => {
-        const versions = await ctx.db
-          .query("versions")
-          .withIndex("by_draft", (q) => q.eq("draftId", d.draftId))
-          .collect();
-        const newest = versions.at(-1);
-        const meta = (newest?.metadata ?? {}) as Record<string, unknown>;
+        // Drafts created before repository fields were added still read their
+        // latest version once. A later upload moves these values onto the draft.
+        let repoName = d.repoName;
+        let repoOrg = d.repoOrg;
+        if (repoName === undefined && repoOrg === undefined) {
+          const newest = await ctx.db
+            .query("versions")
+            .withIndex("by_draft_version", (q) =>
+              q.eq("draftId", d.draftId).eq("versionNumber", d.latestVersion),
+            )
+            .unique();
+          const meta = (newest?.metadata ?? {}) as Record<string, unknown>;
+          repoName = typeof meta.repoName === "string" ? meta.repoName : undefined;
+          repoOrg = typeof meta.repoOrg === "string" ? meta.repoOrg : undefined;
+        }
         return {
           draftId: d.draftId,
           title: d.filename,
           description: d.description ?? null,
           publicUrl: `${process.env.POSTPLAN_PUBLIC_BASE_URL ?? ""}/d/${d.draftId}`,
           latestVersionNumber: d.latestVersion,
-          versionCount: versions.length,
-          repoName: (meta.repoName as string) ?? null,
-          repoOrg: (meta.repoOrg as string) ?? null,
+          versionCount: d.latestVersion,
+          repoName: repoName ?? null,
+          repoOrg: repoOrg ?? null,
           disabled: false,
           updatedAt: new Date(d.updatedAt).toISOString(),
         };

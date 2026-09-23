@@ -5,6 +5,7 @@ import { validateHtml } from "../src/html-policy.js";
 import { draftKey, presign, s3Config } from "./lib/s3";
 import { uploadPage } from "./lib/uploadPage";
 import { downloadPage } from "./lib/downloadPage";
+import { dashboardPage, dashboardScript } from "./lib/dashboardPage";
 
 /**
  * The Postplan API, served by Convex with R2 object storage.
@@ -20,7 +21,11 @@ const MAX_HTML_BYTES = Number(process.env.MAX_HTML_BYTES ?? 512 * 1024);
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
   });
 
 /**
@@ -71,6 +76,39 @@ function newSlug(readable?: string): string {
 }
 
 const http = httpRouter();
+
+http.route({
+  path: "/dashboard",
+  method: "GET",
+  handler: httpAction(async () =>
+    new Response(dashboardPage, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+      },
+    }),
+  ),
+});
+
+http.route({
+  path: "/dashboard.js",
+  method: "GET",
+  handler: httpAction(async () =>
+    new Response(dashboardScript, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    }),
+  ),
+});
 
 http.route({
   path: "/api/me",
